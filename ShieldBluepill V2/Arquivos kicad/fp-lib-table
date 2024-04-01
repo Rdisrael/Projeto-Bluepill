@@ -1,0 +1,6 @@
+(fp_lib_table
+  (version 7)
+  (lib (name "BLUEPILL")(type "KiCad")(uri "C:/ShieldBluepill V2/Simbolo, pegada e modelo 3D/Pegadas/BLUEPILL")(options "")(descr ""))
+  (lib (name "footprint botão com retenção")(type "KiCad")(uri "C:/ShieldBluepill V2/Simbolo, pegada e modelo 3D/Pegadas/footprint botão com retenção")(options "")(descr ""))
+  (lib (name "LCD 16x2")(type "KiCad")(uri "C:/ShieldBluepill V2/Simbolo, pegada e modelo 3D/Pegadas/LCD 16x2")(options "")(descr ""))
+)
