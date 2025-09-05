@@ -1,25 +1,16 @@
-/* USER CODE BEGIN Header */
-/**
-  ******************************************************************************
-  * @file           : main.c
-  * @brief          : Main program body
-  ******************************************************************************
-  * @attention
-  *
-  * Copyright (c) 2025 STMicroelectronics.
-  * All rights reserved.
-  *
-  * This software is licensed under terms that can be found in the LICENSE file
-  * in the root directory of this software component.
-  * If no LICENSE file comes with this software, it is provided AS-IS.
-  *
-  ******************************************************************************
-  */
+//1-controlar o pwm do buzzer utilizando o ADC do potenciômetro
+//2-mostrar os dados do acelerometro no display oled alternar entre os valores de aceleração e rotação por meio do botão sw3
+//3-apertando o botão sw2 deve gravar os valores do gy-521 no sd card
+//4-apartando o sw1 deve se piscar os led e aparecer o autor no display
+//5-som de inicio deve ser uma musica
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "fatfs.h"
-
+#include "ssd1306.h"
+#include "fonts.h"
+#include "gy521.h"
+#include <stdio.h>
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
@@ -42,14 +33,10 @@
 
 /* Private variables ---------------------------------------------------------*/
 ADC_HandleTypeDef hadc1;
-
 I2C_HandleTypeDef hi2c2;
-
 SPI_HandleTypeDef hspi1;
-
 TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim3;
-
 /* USER CODE BEGIN PV */
 
 /* USER CODE END PV */
@@ -68,30 +55,26 @@ static void MX_SPI1_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
-
-void set_pwm_duty_from_adc(void) {
-    HAL_ADC_Start(&hadc1);                         // Inicia a conversão
-    HAL_ADC_PollForConversion(&hadc1, HAL_MAX_DELAY); // Espera terminar
-    uint32_t adc_val = HAL_ADC_GetValue(&hadc1);   // Lê valor de 0 a 4095
+void set_pwm_duty_from_adc(void) {//controle do pwm via adc
+    HAL_ADC_Start(&hadc1);
+    HAL_ADC_PollForConversion(&hadc1, HAL_MAX_DELAY);
+    uint32_t adc_val = HAL_ADC_GetValue(&hadc1);
     HAL_ADC_Stop(&hadc1);
 
-    // Calcula o duty proporcional (0–100%)
     uint32_t arr = __HAL_TIM_GET_AUTORELOAD(&htim1);
     uint32_t duty = (adc_val * arr) / 4095;
 
-    // Atualiza o valor de comparação (duty)
     __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, duty);
 }
 
-void delay_ms(uint32_t ms) {
+void delay_ms(uint32_t ms) {//delay usando um contador do STM
     __HAL_TIM_SET_COUNTER(&htim3, 0);
     HAL_TIM_Base_Start(&htim3);
     while (__HAL_TIM_GET_COUNTER(&htim3) < ms);
 
     HAL_TIM_Base_Stop(&htim3);
 }
-void ledtest(void){
+void ledtest(void){//teste para ligar todos os leds da placa
 		HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
 		HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_3);
 		HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_4);
@@ -102,14 +85,13 @@ void ledtest(void){
 		delay_ms(10000);
 }
 
-
 int nota (int hz){
 int FREQ=72000000;
 if (hz == 0) return 1;
 return FREQ/(1000*hz);
 }
 
-void nothingelse(void) {
+void nothingelse(void) {//musica do buzzer pelo pwm
     int E = 82;
     int G = 196;
     int B = 247;
@@ -140,7 +122,9 @@ void nothingelse(void) {
     delay_ms(12000);
 }
 /* USER CODE END 0 */
-
+FIL gyroFile;
+char gyroFilename[] = "gyro_log.txt";
+UINT bytesWritten;
 /**
   * @brief  The application entry point.
   * @retval int
@@ -178,28 +162,52 @@ int main(void)
   MX_FATFS_Init();
   /* USER CODE BEGIN 2 */
 
-
+  SSD1306_Init();
+  MPU6050_Init(&hi2c2);
+  AxisRaw accel, gyro;
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    /* USER CODE END WHILE */
-
-    /* USER CODE BEGIN 3 */
-
-	  if(HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_14)==0){
-		  ledtest();
-		  HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_1);
-	  }else{
-		  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
-		   nothingelse();
-
-	  }
+  MPU6050_Read_Gyro(&hi2c2, &gyro);
+  OLED_Show_GYRO(gyro);
+  HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
+  nothingelse();
+  delay_ms(500);
+  if(HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_14)==0){
+	 HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_1);
+	 ledtest();
+	 SSD1306_AUTOR();
+	  delay_ms(5000);
   }
-  /* USER CODE END 3 */
+  if(HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_15)==0){
+	 HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_1);
+	 MPU6050_Read_Gyro(&hi2c2, &gyro);
+	 char line[64];
+	 snprintf(line, sizeof(line), "%ld %ld %ld\r\n",
+	 (long)gyro.X,
+	 (long)gyro.Y,
+	 (long)gyro.Z);
+	 if(f_open(&gyroFile, gyroFilename, FA_OPEN_ALWAYS | FA_WRITE) == FR_OK) {
+		f_lseek(&gyroFile, f_size(&gyroFile)); // posiciona no fim
+		f_write(&gyroFile, line, strlen(line), &bytesWritten);
+		f_close(&gyroFile);
+		}
+     delay_ms(500);
+   }
+	if(HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_15)==0){
+	  HAL_TIM_PWM_Stop(&htim1, TIM_CHANNEL_1);
+	  MPU6050_Read_Accel(&hi2c2, &accel);
+	  OLED_Show_ACCEL(accel);
+	  delay_ms(7000);
+	}
 }
+
+}
+  /* USER CODE END 3 */
+
 
 /**
   * @brief System Clock Configuration
